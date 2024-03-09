@@ -1,50 +1,118 @@
+import os
 from machine import Pin, SPI
-import mPythonOfficalSDDriver as sdcard
+import mPythonOfficalSDDriver as sdcard_driver
 import uos
 
 
-def SD_Initialize(mount_point: str = "/sd", **kwargs):
-    def _SD_Test():
-        # Create a file and write something to it
-        with open((mount_point + "/test01.txt"), "w") as file:
-            file.write("Hello, SD World!\r\n")
-            file.write("This is a test\r\n")
+class UnInitializedCardError(Exception):
+    ...
 
-        # Open the file we just created and read from it
-        with open((mount_point + "/test01.txt"), "r") as file:
-            data = file.read()
-            print(data)
 
-    test_mode = False
+class UnmountedFileSystemError(Exception):
+    ...
 
-    if kwargs:
-        if 'test' in kwargs:
-            test_mode = kwargs['test']
+
+class SDCard:
+    def __init__(self, mount_point: str = '/sd', cs_pin: Pin = Pin(9, Pin.OUT),
+                 sck_pin: Pin = Pin(10), mosi_pin: Pin = Pin(11), miso_pin: Pin = Pin(8), **kwargs):
+        if kwargs:
+            if'test_mode' in kwargs:
+                self.test_mode = kwargs['test_mode']
+            else:
+                self.test_mode = False
+            if 'spi_id' in kwargs:
+                self.spi_id = kwargs['spi_id']
+            else:
+                self.spi_id = 1
+            if 'auto_mount' in kwargs:
+                self.auto_mount = kwargs['auto_mount']
+            else:
+                self.auto_mount = False
         else:
-            pass
-    # Assign chip select (CS) pin (and start it high)
-    cs = Pin(9, Pin.OUT)
+            self.test_mode = False
+            self.spi_id = 1
+            self.auto_mount = False
 
-    # Initialize SPI peripheral (start with 1 MHz)
-    spi = SPI(1,
-              baudrate=1000000,
-              polarity=0,
-              phase=0,
-              bits=8,
-              firstbit=SPI.MSB,
-              sck=Pin(10),
-              mosi=Pin(11),
-              miso=Pin(8))
+        self.mount_point = mount_point
+        # Assign chip select (CS) pin (make sure to start it high - Pin.OUT mode)
+        self.cs_pin = cs_pin
+        self.sck_pin = sck_pin
+        self.mosi_pin = mosi_pin
+        self.miso_pin = miso_pin
 
-    # Initialize SD card
-    sd = sdcard.SDCard(spi, cs)
+        self._sd_initialized = False
+        self._sd = None
+        self._is_mounted = None
+        self._file_size = None
 
-    # Mount filesystem
-    vfs = uos.VfsFat(sd)
-    # noinspection PyTypeChecker
-    uos.mount(vfs, mount_point)
+        if self.auto_mount:
+            self.SD_Initialize()
+            self.mount_fs()
 
-    if test_mode:
-        _SD_Test()
+    def SD_Initialize(self):
+        # Initialize SPI peripheral (start with 1 MHz)
+        spi = SPI(self.spi_id,
+                  baudrate=1000000,
+                  polarity=0,
+                  phase=0,
+                  bits=8,
+                  firstbit=SPI.MSB,
+                  sck=self.sck_pin,
+                  mosi=self.mosi_pin,
+                  miso=self.miso_pin)
 
-    return mount_point
+        # Initialize SD card
+        self._sd = sdcard_driver.SDCard(spi, self.cs_pin)
+        self._sd_initialized = True
+        return self._sd
+
+    def mount_fs(self):
+        if self._sd_initialized:
+            # Mount filesystem
+            vfs = uos.VfsFat(self._sd)
+            # noinspection PyTypeChecker
+            uos.mount(vfs, self.mount_point)
+
+            self._is_mounted = True
+        else:
+            raise UnInitializedCardError("SD Card cannot be mounted before it is initialized.")
+
+    @property
+    def file_size(self):
+        return self._file_size
+
+    @file_size.setter
+    def file_size(self, value):
+        if value == 0:
+            self._file_size = f"{value} B"
+        elif value >= 1000000:
+            self._file_size = f"{round(value / 1000000, 2)} MB"
+        elif value >= 1000:
+            self._file_size = f"{round(value / 1000, 2)} KB"
+        else:
+            self._file_size = f"{value} B"
+
+    def get_contents(self):
+        list_dict_contents = []
+        if self._is_mounted:
+            for item in os.ilistdir(self.mount_point):
+                self.file_size = int(item[-1])
+
+                item = {'name': item[0], 'type': item[1], 'size': self.file_size}
+
+                updated_type = self._int_to_filetype(item)
+                item.update(updated_type)
+
+                list_dict_contents.append(item)
+            return list_dict_contents
+        else:
+            raise UnmountedFileSystemError("Filesystem must be mounted first to be read.")
+
+    @staticmethod
+    def _int_to_filetype(raw_item):
+        if raw_item['type'] == 32768:
+            return {'type': 'file'}
+        elif raw_item['type'] == 16384:
+            return {'type': 'dir'}
+        else:
+            return {'type': f'unknown ({raw_item["type"]})'}

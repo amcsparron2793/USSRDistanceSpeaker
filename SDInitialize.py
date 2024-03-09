@@ -14,7 +14,7 @@ class UnmountedFileSystemError(Exception):
 
 class SDCard:
     def __init__(self, mount_point: str = '/sd', cs_pin: Pin = Pin(9, Pin.OUT),
-                 sck_pin: Pin = Pin(10), mosi_pin: Pin = Pin(11), miso_pin: Pin = Pin(8), **kwargs):
+                 sck_pin: Pin = Pin(10), mosi_pin: Pin = Pin(15), miso_pin: Pin = Pin(8), **kwargs):
         if kwargs:
             if'test_mode' in kwargs:
                 self.test_mode = kwargs['test_mode']

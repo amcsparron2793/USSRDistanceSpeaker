@@ -1,12 +1,13 @@
 from machine import Pin, I2S
 import ucontextlib
 import wave_file
-
-amp_sck_pin = Pin(5)
-amp_word_select = Pin(6)
-amp_data_out = Pin(7)
+from micropython import mem_info
+amp_sck_pin = Pin(11)
+amp_word_select = Pin(12)
+amp_data_out = Pin(13)
 amp_i2s_id = 0
 BUFFER_LENGTH_IN_BYTES = 40000
+print(mem_info())
 
 
 def _play_file(wav_data, amp, loop=False, sample_buf=10000):
